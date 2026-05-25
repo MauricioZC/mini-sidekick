@@ -1,0 +1,99 @@
+"Work item ID","Work type","Summary","Description","Priority","Labels","Story Points","Sprint","Parent"
+"1","Epic","[E1] Project Foundation","","Medium","sidekick","","Sprint 1",""
+"2","Epic","[E2] Data Layer","","Medium","sidekick","","Sprint 1",""
+"3","Epic","[E3] Analysis Tools","","Medium","sidekick","","Sprint 1",""
+"4","Epic","[E4] LangGraph Agent","","Medium","sidekick","","Sprint 2",""
+"5","Epic","[E5] Gradio Interface","","Medium","sidekick","","Sprint 2",""
+"6","Story","[S-101] Repo setup, project layout, and dependency manifest","Initialise the Git repository with a structured project layout: separate packages for agent/, tools/, data/, and ui/. Create a virtual environment and pin all dependencies in requirements.txt. Add a .env.example listing every required environment variable and a README skeleton with installation and first-run instructions.
+
+Acceptance Criteria:
+Git repo initialised with .gitignore covering .env, __pycache__, *.db, charts/.
+requirements.txt pins: langgraph, anthropic, pandas, sqlalchemy, matplotlib, seaborn, gradio, python-dotenv, bcrypt.
+.env.example documents: CLAUDE_API_KEY, DB_PATH, CHARTS_DIR, LOG_LEVEL.
+README contains setup steps and a one-command run instruction.","Medium","sidekick e1","2","Sprint 1","1"
+"7","Story","[S-102] Centralised config module and structured logging","Build a config.py module that loads all environment variables via python-dotenv and exposes typed, named settings to the rest of the app. No os.getenv calls outside this module. Add a logging setup that writes structured logs at the level set by LOG_LEVEL, so every agent decision and tool call is traceable from a single stream.
+
+Acceptance Criteria:
+config.py exposes: CLAUDE_API_KEY, DB_PATH, CHARTS_DIR, LOG_LEVEL.
+Raises ValueError with a clear message if CLAUDE_API_KEY is absent at import time.
+All other modules import settings exclusively from config.py.
+Logging writes to stdout with timestamp, level, and module name on every entry.","Medium","sidekick e1","2","Sprint 1","1"
+"8","Story","[S-201] CSV ingestion pipeline — load, validate, and persist to SQLite","Build an ingest_csv(filepath) function that reads a CSV with pandas, validates the schema, and writes it to a SQLite table via SQLAlchemy. The table name is derived from the CSV filename. If the table already exists, drop and recreate it (fresh-load semantics). Return a structured result dict so the UI can confirm success to the user. The SQLAlchemy engine is shared via a module-level singleton.
+
+Acceptance Criteria:
+ingest_csv(filepath) creates or replaces the target SQLite table.
+Returns {table_name, row_count, columns: []}.
+Raises a descriptive error on missing file or malformed CSV — no silent failures.
+Tested end-to-end with at least one Kaggle personal finance CSV.
+Engine singleton is reused across all DB calls — no duplicate connections.","High","sidekick e2","3","Sprint 1","2"
+"9","Story","[S-202] run_sql and describe_schema agent tools","Implement two LangGraph-bindable tools. run_sql(query) executes a read-only SQL string against SQLite and returns up to 500 rows as a list of dicts. describe_schema() returns every table's column names, data types, and three sample rows — this is the Worker node's primary orientation tool before planning any query. Both tools are decorated with @tool and registered in the central tool registry.
+
+Acceptance Criteria:
+run_sql returns a JSON-serialisable list of dicts (max 500 rows).
+Returns empty list plus a human-readable warning string for zero-result queries.
+Only SELECT statements permitted — DDL/DML raises a descriptive error.
+describe_schema returns {table: {columns: [], dtypes: {}, sample_rows: []}} for all tables.
+Both tools decorated with @tool and present in the central tool registry.","High","sidekick e2","3","Sprint 1","2"
+"10","Story","[S-301] calculate tool — pandas and numpy aggregations over the loaded DataFrame","Build a calculate(expression) tool that evaluates a pandas/numpy expression string against the in-memory DataFrame. Support: sum, mean, median, std, percentile, value_counts, groupby+agg, and filtered calculations. Guard against unsafe expressions. Return a structured error dict (never a raw Python traceback) so the Evaluator can decide whether to retry or raise a clarifying question.
+
+Acceptance Criteria:
+calculate(expression) evaluates against the loaded DataFrame and returns a JSON-serialisable scalar, list, or dict.
+Handles: sum, mean, median, std, value_counts, groupby().agg(), filtered sums.
+Returns {error: str, hint: str} on failure — never raises an unhandled exception.
+Decorated with @tool and registered in the central tool registry.","Medium","sidekick e3","3","Sprint 1","3"
+"11","Story","[S-302] plot_chart tool — bar, line, and scatter plots with seaborn","Implement a plot_chart(chart_type, x_col, y_col, title, hue) tool that generates a matplotlib/seaborn figure and saves it as a timestamped PNG to CHARTS_DIR. Supported types: bar, line, scatter. Return the absolute file path so the Gradio UI can render it inline. Apply a consistent visual style: seaborn theme, labelled axes, readable title.
+
+Acceptance Criteria:
+plot_chart supports chart_type in ['bar', 'line', 'scatter'].
+Saves file to CHARTS_DIR/{timestamp}_{chart_type}.png and returns the absolute path.
+Returns {error: str} if columns do not exist in the DataFrame — never raises.
+Consistent seaborn style applied across all chart types.
+Decorated with @tool and registered in the central tool registry.","Medium","sidekick e3","5","Sprint 1","3"
+"12","Story","[S-401] AgentState schema and 3-node graph skeleton","Define the TypedDict AgentState and wire up the three-node LangGraph graph: Worker → Tools → Evaluator. Worker plans which tool to call; Tools executes it; Evaluator checks success criteria and routes to retry, clarify, or END. At this stage nodes can be stubs — the goal is a compilable, invokable graph that validates the full routing logic before any Claude integration.
+
+Acceptance Criteria:
+AgentState TypedDict contains: question, plan, tool_calls[], tool_results[], evaluation, clarification_count, clarification_questions[], user_responses[], final_answer.
+Graph compiles with Worker, Tools, and Evaluator nodes.
+Conditional edge from Evaluator routes correctly to Worker (retry), clarify (ask user), or END.
+graph.invoke({'question': 'test'}) runs without error with stub nodes.","High","sidekick e4","3","Sprint 2","4"
+"13","Story","[S-402] Worker node — Claude-powered planning and task decomposition","Implement the Worker node with full Claude SDK integration. The Worker receives the user question (and any clarification responses) and calls claude-sonnet-4-6 with all four tool schemas. Claude returns which tool to call and with what arguments. The Worker writes this plan to AgentState and hands off to the Tools node. For multi-step questions, the Worker loops back through the graph for each step, incorporating previous tool results into subsequent plans.
+
+Acceptance Criteria:
+Worker node calls claude-sonnet-4-6 via Anthropic SDK with all four tool schemas.
+Populates state.plan with tool name and arguments.
+Incorporates state.user_responses from clarification rounds into its context window.
+Handles multi-step questions by replanning after each tool result (max 5 iterations).
+Worker selects the correct tool for 5 varied test questions: SQL aggregation, calculation, chart, schema lookup, and a multi-step compound question.","High","sidekick e4","5","Sprint 2","4"
+"14","Story","[S-403] Evaluator node — success criteria check and clarifying questions (max 3)","Implement the Evaluator node. After Tools runs a tool, the Evaluator checks whether the result satisfies the original question's success criteria: non-empty result, correct data type, no error keys present. If criteria fail and clarification_count < 3, the Evaluator generates up to 3 targeted clarifying questions and pauses the graph. Once user responses arrive, it routes back to Worker with enriched context. If criteria are met, it writes final_answer and routes to END. If clarification_count reaches 3, it forces a best-effort answer.
+
+Acceptance Criteria:
+Evaluator checks: result non-empty, result type matches question intent, no error key.
+On failure with clarification_count < 3: writes up to 3 clarifying questions to state, increments clarification_count, routes to 'clarify'.
+On failure with clarification_count >= 3: routes to Worker for a forced final answer.
+On success: writes final_answer, routes to END.
+Full clarification path tested with a deliberately ambiguous query that triggers all 3 rounds.","High","sidekick e4","5","Sprint 2","4"
+"15","Story","[S-404] Tools node — tool dispatch, error handling, and end-to-end integration test","Implement the Tools node, which reads state.plan, dispatches the correct tool from the central registry, and writes the result (or a structured error) to state.tool_results. Run a full end-to-end integration test covering five scenarios: a SQL aggregation, a pandas calculation, a chart request, a multi-step compound question, and a query that deliberately triggers the clarification flow.
+
+Acceptance Criteria:
+Tools node dispatches run_sql, calculate, plot_chart, describe_schema from the registry based on state.plan.
+Writes structured result to state.tool_results[].
+On tool error writes {error: str, tool: str} to state — never raises unhandled.
+All 5 integration scenarios pass: SQL agg, calculation, chart, multi-step, clarification.
+All tests complete within 5 graph iterations.","High","sidekick e4","3","Sprint 2","4"
+"16","Story","[S-501] Gradio UI — upload tab, chat tab, inline charts, and clarification flow","Build the Gradio interface with two tabs. Upload tab: accepts a CSV, calls ingest_csv, and displays table name and row count. Chat tab: a chatbot component that invokes the LangGraph agent and displays the response. When the agent returns a chart path, render the PNG inline below the answer. When the Evaluator triggers the clarification path, surface the questions in the chat and route the user's typed response back into state.user_responses so the graph can resume.
+
+Acceptance Criteria:
+Upload tab calls ingest_csv on submit and shows {table_name, row_count} confirmation.
+Chat tab sends user message to graph.invoke and renders the final_answer.
+Chart PNGs displayed as gr.Image inline when the agent returns a file path.
+Clarifying questions shown as a follow-up chat message; user reply is injected into state.user_responses and the graph resumes correctly.
+Interface launches on localhost with gr.Blocks and is reachable in browser.","High","sidekick e5","5","Sprint 2","5"
+"17","Story","[S-502] SQL-backed Gradio authentication, smoke tests, and LinkedIn demo","Replace placeholder auth with a SQL-backed authentication layer. A users table in SQLite stores username and bcrypt-hashed password. Gradio's auth= parameter calls verify_user(username, password), which queries the DB and checks the bcrypt hash. Seed the DB with one default user on first run. After auth is wired, run smoke tests covering the full user journey and record a screen capture for the LinkedIn post.
+
+Acceptance Criteria:
+users table created on app startup: id, username, password_hash, created_at.
+verify_user(u, p) queries the table and validates bcrypt hash — returns bool.
+Gradio auth= wired to verify_user; unauthenticated requests show login prompt only.
+Default user seeded from .env credentials on first run.
+Smoke test covers the full journey: login → CSV upload → SQL query → chart → clarification round → final answer.
+README updated with demo GIF or video link.","Medium","sidekick e5","3","Sprint 2","5"
